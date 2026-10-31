@@ -18,11 +18,17 @@
   }
   function save() { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
 
-  var S = load() || { items: {}, sessions: [], settings: { dailyNew: 10 } };
+  var S = load() || { items: {}, sessions: [], settings: { dailyNew: 20, dailyReview: 5, v: 2 } };
   S.settings = S.settings || {};
-  if (!S.settings.dailyNew) S.settings.dailyNew = 10;
+  if (!S.settings.dailyNew) S.settings.dailyNew = 20;
+  if (S.settings.dailyReview === undefined) S.settings.dailyReview = 5;
   if (!S.settings.shuffle) S.settings.shuffle = "lesson"; // lesson | all | none
   if (S.settings.scope === undefined) S.settings.scope = null; // null = 全册，否则为课 id 数组
+  if (!S.settings.v) { // 老版本升级为「每天最多新学 20、复习 5」
+    S.settings.dailyNew = 20;
+    S.settings.dailyReview = 5;
+    S.settings.v = 2;
+  }
 
   /* ---------- 内容展开 ---------- */
   // 每个条目: { id, lessonId, lessonTitle, lessonNo, type:'word'|'sent', w, p, title, prompt, answer }
@@ -111,16 +117,22 @@
     return overdue * 2 + (st.w || 0) * 3 + (5 - (st.s || 0));
   }
 
-  function buildTodayQueue() {
+  // 到期的复习题，按紧急度降序
+  function dueItems() {
     var t = todayStr();
     var due = ALL.filter(function (it) {
       var st = S.items[it.id];
       return st && st.due <= t && st.s < 5 && inScope(it);
     });
     due.sort(function (a, b) { return urgency(S.items[b.id], t) - urgency(S.items[a.id], t); });
+    return due;
+  }
+
+  function buildTodayQueue() {
+    var cap = Math.max(0, parseInt(S.settings.dailyReview, 10) || 0);
     var fresh = ALL.filter(function (it) { return !S.items[it.id] && inScope(it); })
       .slice(0, S.settings.dailyNew);
-    return due.concat(applyOrder(fresh));
+    return dueItems().slice(0, cap).concat(applyOrder(fresh));
   }
 
   function todayDoneCount() {
@@ -164,13 +176,40 @@
         ? '<div class="sent-prompt">' + it.prompt + "____</div>"
         : '<div class="sent-prompt" style="font-size:22px">默写整句</div>';
     }
+    h += '<div class="input-wrap">';
     h += '<input class="answer-input" id="ansInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">';
+    h += '<div class="edit-row">';
+    h += '<button class="erase-btn" id="backBtn">⌫ 退一格</button>';
+    h += '<button class="erase-btn" id="eraseBtn">✕ 擦掉重写</button>';
+    h += "</div>";
+    h += "</div>";
     h += '<div class="session-tip">在键盘上切换到「简体手写」即可手写输入</div>';
     h += '<button class="btn" id="submitBtn">提交</button>';
     h += '<button class="btn ghost" id="skipBtn">不会，跳过</button>';
     body.innerHTML = h;
     var inp = document.getElementById("ansInput");
     inp.focus();
+
+    // 两个按钮都不抢焦点，点完光标还在输入框里
+    ["backBtn", "eraseBtn"].forEach(function (bid) {
+      var b = document.getElementById(bid);
+      b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+      b.addEventListener("touchstart", function (e) { e.preventDefault(); }, { passive: false });
+    });
+
+    document.getElementById("backBtn").onclick = function () {
+      var v = inp.value;
+      if (!v) { inp.focus(); return; }
+      var pos = (inp.selectionStart == null || inp.selectionStart > v.length) ? v.length : inp.selectionStart;
+      if (pos === 0) { inp.focus(); return; }
+      inp.value = v.slice(0, pos - 1) + v.slice(pos);
+      try { inp.setSelectionRange(pos - 1, pos - 1); } catch (e) { }
+      inp.focus();
+    };
+    document.getElementById("eraseBtn").onclick = function () {
+      inp.value = "";
+      inp.focus();
+    };
     document.getElementById("submitBtn").onclick = function () { judge(false); };
     document.getElementById("skipBtn").onclick = function () { judge(true); };
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") judge(false); });
@@ -272,8 +311,13 @@
     var reviewN = q.filter(function (it) { return S.items[it.id]; }).length;
     var newN = q.length - reviewN;
     var h = "";
+    var pending = dueItems().length;
     h += '<div class="card"><h3>今日任务</h3><div class="sub">到期复习 ' + reviewN +
       " 个（越易忘的越靠前）+ 新学 " + newN + " 个 · 范围：" + scopeLabel() + "</div>";
+    if (pending > reviewN) {
+      h += '<div class="sub" style="margin-top:6px">还有 ' + (pending - reviewN) +
+        " 个待复习排着队（共 " + pending + " 个），明天从最紧急的继续。</div>";
+    }
     h += '<button class="btn" id="todayBtn"' + (q.length ? "" : " disabled") + ">开始今日默写</button></div>";
     // 学习进度
     var inAll = ALL.filter(inScope);
@@ -357,7 +401,8 @@
 
   function renderMe() {
     var h = '<div class="card"><h3>设置</h3>';
-    h += '<div class="set-row"><span>每天新学词语数</span><input type="number" id="dailyNew" min="3" max="30" value="' + S.settings.dailyNew + '"></div>';
+    h += '<div class="set-row"><span>每天最多新学</span><input type="number" id="dailyNew" min="3" max="30" value="' + S.settings.dailyNew + '"></div>';
+    h += '<div class="set-row"><span>每天最多复习</span><input type="number" id="dailyReview" min="0" max="50" value="' + S.settings.dailyReview + '"></div>';
     h += '<div class="set-row" style="border-bottom:none"><span>新词出题顺序</span></div>';
     h += '<div class="scope-chips">';
     [["lesson", "课内随机"], ["all", "整批随机"], ["none", "按课本顺序"]].forEach(function (o) {
@@ -433,8 +478,15 @@
     document.getElementById("scNone").onclick = function () { setScope([]); };
 
     document.getElementById("dailyNew").onchange = function (e) {
-      S.settings.dailyNew = Math.max(3, Math.min(30, parseInt(e.target.value) || 10));
+      S.settings.dailyNew = Math.max(3, Math.min(30, parseInt(e.target.value) || 20));
       save();
+      render();
+    };
+    document.getElementById("dailyReview").onchange = function (e) {
+      var v = parseInt(e.target.value, 10);
+      S.settings.dailyReview = isNaN(v) ? 5 : Math.max(0, Math.min(50, v));
+      save();
+      render();
     };
     document.getElementById("expBtn").onclick = function () {
       var blob = new Blob([JSON.stringify(S)], { type: "application/json" });

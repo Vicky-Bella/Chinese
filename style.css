@@ -119,13 +119,24 @@ main { padding: 12px 16px 40px; }
 .sent-prompt {
   text-align: center; font-size: 30px; font-weight: 700; margin-top: 14px; line-height: 1.5;
 }
+.input-wrap { position: relative; margin-top: 40px; }
 .answer-input {
-  display: block; width: 100%; margin-top: 40px;
+  display: block; width: 100%; margin-top: 0;
   font-size: 26px; padding: 16px; text-align: center;
   border: 2px solid var(--line); border-radius: 16px; background: var(--card);
   font-family: inherit; color: var(--ink);
 }
 .answer-input:focus { outline: none; border-color: var(--primary); }
+.edit-row {
+  display: flex; gap: 10px; justify-content: center; margin-top: 12px;
+}
+.erase-btn {
+  border: 1.5px solid var(--line); background: var(--bg); color: var(--ink-soft);
+  font-size: 15px; font-family: inherit; font-weight: 600;
+  padding: 11px 18px; border-radius: 12px; min-height: 46px; min-width: 116px;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.erase-btn:active { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); }
 .session-tip { text-align: center; font-size: 13px; color: var(--ink-soft); margin-top: 12px; }
 
 /* 判分反馈 */
