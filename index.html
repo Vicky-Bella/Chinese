@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="默写本">
+<title>词语默写本</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">默写本</div>
+  <div class="streak" id="streakBadge"></div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="today">今日</button>
+  <button class="tab" data-tab="practice">练习</button>
+  <button class="tab" data-tab="notebook">错题本</button>
+  <button class="tab" data-tab="me">我的</button>
+</nav>
+
+<main id="main"></main>
+
+<!-- 默写会话全屏层 -->
+<div id="session" class="session hidden">
+  <div class="session-top">
+    <button class="btn-quit" id="quitBtn">退出</button>
+    <div class="progress"><div class="progress-bar" id="progBar"></div></div>
+    <div class="session-count" id="sessCount"></div>
+  </div>
+  <div class="session-body" id="sessBody"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
