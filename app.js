@@ -18,6 +18,63 @@
   }
   function save() { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
 
+  /* ---------- 完成后用来夸人的名言名句 ---------- */
+  var PRAISE_QUOTES = [
+    ["读书破万卷，下笔如有神。", "杜甫"],
+    ["宝剑锋从磨砺出，梅花香自苦寒来。", ""],
+    ["书山有路勤为径，学海无涯苦作舟。", ""],
+    ["业精于勤，荒于嬉。", "韩愈"],
+    ["不积跬步，无以至千里。", "荀子"],
+    ["锲而不舍，金石可镂。", "荀子"],
+    ["天生我材必有用。", "李白"],
+    ["长风破浪会有时，直挂云帆济沧海。", "李白"],
+    ["会当凌绝顶，一览众山小。", "杜甫"],
+    ["绳锯木断，水滴石穿。", ""],
+    ["读书百遍，而义自见。", ""],
+    ["三更灯火五更鸡，正是男儿读书时。", "颜真卿"],
+    ["少而好学，如日出之阳。", "刘向"],
+    ["玉不琢，不成器；人不学，不知义。", "《三字经》"],
+    ["聪明出于勤奋，天才在于积累。", "华罗庚"]
+  ];
+  // 按正确率分档，越高的档夸得越狠
+  var PRAISE_HEADS = [
+    { min: 1.0, items: ["全对！一个字都没写错", "满分！这速度和准确率都顶了", "一个不落，全中！"] },
+    { min: 0.9, items: ["几乎全对，这功夫下得扎实", "就差一个字，稳得可怕"] },
+    { min: 0.7, items: ["大部分都对，进步一眼就看见", "错的那几个已经被你揪出来了"] },
+    { min: 0, items: ["今天的任务完成了，这就叫坚持", "不会的都翻出来了，等于白捡"] }
+  ];
+  var PRAISE_LINES = [
+    "这份坚持，比一次满分更值钱。",
+    "你今天的专注，家里人都看在眼里。",
+    "照这个劲头下去，词语表就归你管了。",
+    "写字这件事，你已经比昨天更强了。",
+    "能坐住、能写完，这就是真本事。"
+  ];
+  function praiseData(right, total, qi, hi) {
+    var rate = total ? right / total : 0;
+    var pool = PRAISE_HEADS[PRAISE_HEADS.length - 1].items;
+    for (var i = 0; i < PRAISE_HEADS.length; i++) {
+      if (rate >= PRAISE_HEADS[i].min) { pool = PRAISE_HEADS[i].items; break; }
+    }
+    var p = Math.abs(qi || 0), hh = Math.abs(hi || 0);
+    var q = PRAISE_QUOTES[p % PRAISE_QUOTES.length];
+    return { head: pool[hh % pool.length], quote: q[0], author: q[1], extra: PRAISE_LINES[p % PRAISE_LINES.length] };
+  }
+  function praiseHTML(p, right, total) {
+    var h = '<div class="praise">';
+    h += '<div class="praise-head">' + p.head + "</div>";
+    h += '<div class="praise-sub">今天默写 ' + total + " 题，对了 " + right + " 个 · " + p.extra + "</div>";
+    h += '<div class="praise-quote">“' + p.quote + "”</div>";
+    if (p.author) h += '<div class="praise-author">—— ' + p.author + "</div>";
+    h += "</div>";
+    return h;
+  }
+  // 当天的「已完成」记录（按日期判断，跨天自动失效）
+  function dayDoneInfo() {
+    if (S.dayDone && S.dayDone.date === todayStr()) return S.dayDone;
+    return null;
+  }
+
   var S = load() || { items: {}, sessions: [], settings: { dailyNew: 20, dailyReview: 5, v: 2 } };
   S.settings = S.settings || {};
   if (!S.settings.dailyNew) S.settings.dailyNew = 20;
@@ -153,6 +210,34 @@
   /* ---------- 会话 ---------- */
   var sess = null;
 
+  // 绑定「按下即执行」的编辑按钮：
+  // 动作放在 pointerdown / touchstart 里执行（iPad 上 touchstart 被 preventDefault 后不会再产生 click，
+  // 所以不能只挂 click），随后紧跟的那一次 click 只吞掉、不重复执行。
+  // click 仍保留兜底：键盘 Tab+回车、读屏软件等只产生 click 的场景。
+  function bindEdit(id, fn) {
+    var b = document.getElementById(id);
+    if (!b) return;
+    var pressPending = false, resetT = null;
+    function press(e) {
+      if (e && e.cancelable) e.preventDefault();
+      pressPending = true;
+      if (resetT) clearTimeout(resetT);
+      resetT = setTimeout(function () { pressPending = false; }, 800);
+      fn();
+    }
+    if (window.PointerEvent) {
+      b.addEventListener("pointerdown", press);
+    } else {
+      b.addEventListener("touchstart", press, { passive: false });
+      b.addEventListener("mousedown", press);
+    }
+    b.addEventListener("click", function (e) {
+      if (pressPending) { pressPending = false; return; } // 这一下已经由按下事件处理过了
+      if (e && e.cancelable) e.preventDefault();
+      fn();
+    });
+  }
+
   function startSession(queue, label) {
     if (!queue.length) { alert("没有需要默写的内容"); return; }
     sess = { queue: queue, idx: 0, right: 0, wrongIds: [], label: label || "今日默写" };
@@ -190,26 +275,22 @@
     var inp = document.getElementById("ansInput");
     inp.focus();
 
-    // 两个按钮都不抢焦点，点完光标还在输入框里
-    ["backBtn", "eraseBtn"].forEach(function (bid) {
-      var b = document.getElementById(bid);
-      b.addEventListener("mousedown", function (e) { e.preventDefault(); });
-      b.addEventListener("touchstart", function (e) { e.preventDefault(); }, { passive: false });
-    });
-
-    document.getElementById("backBtn").onclick = function () {
+    // 直接在「按下」时执行，并且阻止默认行为保住输入框焦点
+    // 注意：不能在 touchstart 里只 preventDefault 却把动作留给 click ——
+    // iPad 上 touchstart 被 preventDefault 后，后续的 click 事件不会再触发，按钮就"点了没反应"
+    bindEdit("backBtn", function () {
       var v = inp.value;
       if (!v) { inp.focus(); return; }
       var pos = (inp.selectionStart == null || inp.selectionStart > v.length) ? v.length : inp.selectionStart;
-      if (pos === 0) { inp.focus(); return; }
+      if (pos === 0) pos = v.length; // 光标在最前面时按"退一格"，按删除最后一个字处理，避免点了没反应
       inp.value = v.slice(0, pos - 1) + v.slice(pos);
       try { inp.setSelectionRange(pos - 1, pos - 1); } catch (e) { }
       inp.focus();
-    };
-    document.getElementById("eraseBtn").onclick = function () {
+    });
+    bindEdit("eraseBtn", function () {
       inp.value = "";
       inp.focus();
-    };
+    });
     document.getElementById("submitBtn").onclick = function () { judge(false); };
     document.getElementById("skipBtn").onclick = function () { judge(true); };
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") judge(false); });
@@ -261,8 +342,20 @@
 
   function finishSession() {
     S.sessions.push({ date: todayStr(), total: sess.queue.length, right: sess.right });
-    save();
     var total = sess.queue.length, right = sess.right;
+    var isToday = sess.label === "今日默写";
+    if (isToday) {
+      // 记下「今天的任务已完成」，今日页据此禁用开始按钮并展示夸人的话
+      var prev = dayDoneInfo();
+      S.dayDone = {
+        date: todayStr(),
+        total: (prev ? prev.total : 0) + total,
+        right: (prev ? prev.right : 0) + right,
+        qi: Math.floor(Math.random() * PRAISE_QUOTES.length),
+        hi: Math.floor(Math.random() * 4)
+      };
+    }
+    save();
     var wrongList = sess.wrongIds.map(function (id) { return byId[id]; });
     var body = document.getElementById("sessBody");
     document.getElementById("progBar").style.width = "100%";
@@ -277,6 +370,9 @@
     } else {
       h += '<div class="result-wrong" style="text-align:center">全部正确，太棒了！</div>';
     }
+    var pR = right, pT = total;
+    if (isToday && S.dayDone) { pR = S.dayDone.right; pT = S.dayDone.total; }
+    h += praiseHTML(praiseData(pR, pT, S.dayDone ? S.dayDone.qi : 0, S.dayDone ? S.dayDone.hi : 0), pR, pT);
     h += '<button class="btn" id="doneBtn">好的</button>';
     body.innerHTML = h;
     document.getElementById("doneBtn").onclick = function () {
@@ -310,6 +406,7 @@
     var q = buildTodayQueue();
     var reviewN = q.filter(function (it) { return S.items[it.id]; }).length;
     var newN = q.length - reviewN;
+    var done = dayDoneInfo();
     var h = "";
     var pending = dueItems().length;
     h += '<div class="card"><h3>今日任务</h3><div class="sub">到期复习 ' + reviewN +
@@ -318,7 +415,13 @@
       h += '<div class="sub" style="margin-top:6px">还有 ' + (pending - reviewN) +
         " 个待复习排着队（共 " + pending + " 个），明天从最紧急的继续。</div>";
     }
-    h += '<button class="btn" id="todayBtn"' + (q.length ? "" : " disabled") + ">开始今日默写</button></div>";
+    h += '<button class="btn" id="todayBtn"' + ((q.length && !done) ? "" : " disabled") + ">" +
+      (done ? "今天已完成 ✓" : "开始今日默写") + "</button>";
+    if (done) {
+      h += praiseHTML(praiseData(done.right, done.total, done.qi, done.hi), done.right, done.total);
+      h += '<button class="link-btn" id="moreBtn">今天还想再练，点这里</button>';
+    }
+    h += "</div>";
     // 学习进度
     var inAll = ALL.filter(inScope);
     var learned = 0;
@@ -339,7 +442,13 @@
     h += '<div class="card"><h3>复习节奏（艾宾浩斯）</h3><div class="sub">答对后按 1 → 2 → 4 → 7 → 15 天自动安排复习；写错第二天再来，并进入错题本。</div></div>';
     main.innerHTML = h;
     var btn = document.getElementById("todayBtn");
-    if (btn) btn.onclick = function () { startSession(q, "今日默写"); };
+    if (btn && !btn.disabled) btn.onclick = function () { startSession(q, "今日默写"); };
+    var moreBtn = document.getElementById("moreBtn");
+    if (moreBtn) moreBtn.onclick = function () {
+      S.dayDone = null;
+      save();
+      render();
+    };
   }
 
   function renderPractice() {

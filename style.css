@@ -162,6 +162,27 @@ main { padding: 12px 16px 40px; }
   border-radius: 10px; padding: 7px 12px; margin: 4px; font-size: 16px; font-weight: 600;
 }
 
+/* 完成后夸人的话 */
+.praise {
+  margin-top: 22px; padding: 20px 18px;
+  background: linear-gradient(160deg, #fff6ea 0%, #fdeedd 100%);
+  border: 1px solid #f4ddc4; border-radius: var(--radius);
+  text-align: center;
+}
+.praise-head { font-size: 21px; font-weight: 900; color: #b4560f; letter-spacing: .5px; }
+.praise-sub { font-size: 13px; color: #8a6a45; margin-top: 8px; line-height: 1.6; }
+.praise-quote {
+  font-size: 18px; font-weight: 700; color: var(--ink); line-height: 1.7;
+  margin-top: 16px; padding-top: 14px; border-top: 1px dashed #f0d6ba;
+  font-family: "Songti SC", "STSong", "PingFang SC", serif;
+}
+.praise-author { font-size: 13px; color: var(--ink-soft); margin-top: 6px; }
+.link-btn {
+  display: block; width: 100%; margin-top: 14px; padding: 10px;
+  background: none; border: none; font-family: inherit;
+  font-size: 13px; color: var(--ink-soft); text-decoration: underline;
+}
+
 /* 错题本 */
 .nb-item {
   display: flex; align-items: center; justify-content: space-between;
