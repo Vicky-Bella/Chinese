@@ -75,17 +75,36 @@
     return null;
   }
 
-  var S = load() || { items: {}, sessions: [], settings: { dailyNew: 20, dailyReview: 5, v: 2 } };
-  S.settings = S.settings || {};
-  if (!S.settings.dailyNew) S.settings.dailyNew = 20;
-  if (S.settings.dailyReview === undefined) S.settings.dailyReview = 5;
-  if (!S.settings.shuffle) S.settings.shuffle = "lesson"; // lesson | all | none
-  if (S.settings.scope === undefined) S.settings.scope = null; // null = 全册，否则为课 id 数组
-  if (!S.settings.v) { // 老版本升级为「每天最多新学 20、复习 5」
-    S.settings.dailyNew = 20;
-    S.settings.dailyReview = 5;
-    S.settings.v = 2;
+  // 统一补齐字段：首次启动、老版本升级、导入备份、清空记录都走这里
+  function normalizeState(s) {
+    s = s || {};
+    s.items = s.items || {};
+    s.sessions = s.sessions || [];
+    s.settings = s.settings || {};
+    var st = s.settings;
+    if (!st.dailyNew) st.dailyNew = 20;
+    if (st.dailyReview === undefined) st.dailyReview = 5;
+    if (!st.shuffle) st.shuffle = "lesson"; // lesson | all | none
+    if (st.scope === undefined) st.scope = null; // null = 全册，否则为课 id 数组
+    if (!st.v) { // 老版本升级为「每天最多新学 20、复习 5」
+      st.dailyNew = 20; st.dailyReview = 5; st.v = 2;
+    }
+    // 有效打卡日 { "YYYY-MM-DD": "normal" | "makeup" }
+    // 老版本没有这个字段，从 sessions 的日期一次性迁入，保住已有的连续记录
+    if (!s.checkins) {
+      s.checkins = {};
+      s.sessions.forEach(function (x) { if (x && x.date) s.checkins[x.date] = "normal"; });
+    }
+    if (typeof s.makeupCards !== "number") s.makeupCards = 0; // 攒下的补打卡卡
+    if (typeof s.wish !== "string") s.wish = "";               // 愿望文字
+    if (s.cardBase === undefined) s.cardBase = null;           // 当前连续段起点
+    if (typeof s.cardMilestone !== "number") s.cardMilestone = 0; // 该段已发卡到几个 10 天
+    if (typeof s.wishTier !== "number") s.wishTier = 0;        // 该段已实现到几个 100 天
+    if (s.wishParty === undefined) s.wishParty = null;         // 当天的愿望达成庆祝
+    if (s.dayDone === undefined) s.dayDone = null;
+    return s;
   }
+  var S = normalizeState(load() || { settings: { dailyNew: 20, dailyReview: 5, v: 2 } });
 
   /* ---------- 内容展开 ---------- */
   // 每个条目: { id, lessonId, lessonTitle, lessonNo, type:'word'|'sent', w, p, title, prompt, answer }
@@ -198,13 +217,72 @@
     return s.length ? s.reduce(function (a, b) { return a + b.total; }, 0) : 0;
   }
 
-  function streakDays() {
-    var dates = {};
-    S.sessions.forEach(function (x) { dates[x.date] = true; });
-    var n = 0, off = 0;
-    if (!dates[todayStr(0)]) off = 1; // 今天还没开始，从昨天起算
-    while (dates[todayStr(-off)]) { n++; off++; }
-    return n;
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function shiftDate(s, delta) {
+    var p = s.split("-");
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    d.setDate(d.getDate() + delta);
+    var m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" + m : m) + "-" + (day < 10 ? "0" + day : day);
+  }
+  function daysAgo(s) {
+    var p = s.split("-");
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    var t = new Date(); t.setHours(0, 0, 0, 0);
+    return Math.round((t - d) / 86400000);
+  }
+  function fmtDate(s) {
+    var p = s.split("-");
+    return (+p[1]) + "月" + (+p[2]) + "日";
+  }
+  // 当前连续段：今天还没打卡时从昨天起算（今天仍有机会接上）
+  function streakInfo() {
+    var d = S.checkins || {};
+    var off = d[todayStr()] ? 0 : 1;
+    var n = 0, first = null, last = null;
+    while (d[todayStr(-off)]) {
+      var dt = todayStr(-off);
+      if (!first) first = dt;
+      last = dt; n++; off++;
+    }
+    return { n: n, start: last, end: first };
+  }
+  function streakDays() { return streakInfo().n; }
+
+  // 每连续满 10 天发 1 张补打卡卡；每连续满 100 天实现一个愿望。
+  // mode: "init" 启动时同步(不弹庆祝) | "normal" 完成打卡后 | "makeup" 补打卡(只保住连续，不额外奖励)
+  function syncRewards(mode) {
+    var info = streakInfo(), granted = [];
+    if (!info.n) { S.cardBase = null; S.cardMilestone = 0; S.wishTier = 0; return granted; }
+    if (S.cardBase !== info.start) { // 换了新的连续段，里程碑重新计
+      S.cardBase = info.start; S.cardMilestone = 0; S.wishTier = 0;
+    }
+    var cTarget = Math.floor(info.n / 10), wTarget = Math.floor(info.n / 100);
+    if (mode === "makeup") { S.cardMilestone = cTarget; S.wishTier = wTarget; return granted; }
+    while (S.cardMilestone < cTarget) { S.cardMilestone++; S.makeupCards++; }
+    while (S.wishTier < wTarget) { S.wishTier++; granted.push(S.wishTier * 100); }
+    return granted;
+  }
+  // 找到「紧挨着当前连续段、可以补上的那一天」，最多只能补最近 7 天内
+  function makeupCandidate() {
+    var d = S.checkins || {}, info = streakInfo();
+    var cand;
+    if (info.end) {
+      cand = shiftDate(info.start, -1); // 当前连续段最前面一天的「前一天」＝能接上的缺口
+      if (d[cand] || daysAgo(cand) < 1) return null; // 已打过 / 是今天或未来
+    } else {
+      cand = null;
+      for (var i = 1; i <= 7; i++) {
+        var dt = todayStr(-i);
+        if (d[dt]) { cand = shiftDate(dt, 1); break; }
+      }
+      if (!cand || d[cand]) return null;
+    }
+    return (daysAgo(cand) >= 1 && daysAgo(cand) <= 7) ? cand : null;
   }
 
   /* ---------- 会话 ---------- */
@@ -340,10 +418,27 @@
     }
   }
 
+  function wishPartyHTML(tier) {
+    var wish = S.wish ? "「" + esc(S.wish) + "」" : "还没写下愿望，回今日页点虚线框写一个吧 🙏";
+    var h = '<div class="wish-party">';
+    h += '<div class="wp-emoji">🎉</div>';
+    h += '<div class="wp-title">连续打卡 ' + tier + " 天，愿望达成！</div>";
+    h += '<div class="wp-wish">' + wish + "</div>";
+    h += '<div class="wp-sub">一百天，一天没落，这份坚持真的很了不起。<br>天数继续往上走，下一个愿望在 ' +
+      (tier + 100) + " 天等你。</div>";
+    h += "</div>";
+    return h;
+  }
+  function wishPartyInfo() {
+    if (S.wishParty && S.wishParty.date === todayStr()) return S.wishParty;
+    return null;
+  }
+
   function finishSession() {
     S.sessions.push({ date: todayStr(), total: sess.queue.length, right: sess.right });
     var total = sess.queue.length, right = sess.right;
     var isToday = sess.label === "今日默写";
+    var granted = [];
     if (isToday) {
       // 记下「今天的任务已完成」，今日页据此禁用开始按钮并展示夸人的话
       var prev = dayDoneInfo();
@@ -354,6 +449,10 @@
         qi: Math.floor(Math.random() * PRAISE_QUOTES.length),
         hi: Math.floor(Math.random() * 4)
       };
+      // 完成今日任务 = 当天打卡成功（写错也算完成）
+      S.checkins[todayStr()] = "normal";
+      granted = syncRewards("normal"); // 满 10 天发补打卡卡、满 100 天实现愿望
+      if (granted.length) S.wishParty = { date: todayStr(), tier: granted[granted.length - 1] };
     }
     save();
     var wrongList = sess.wrongIds.map(function (id) { return byId[id]; });
@@ -373,6 +472,7 @@
     var pR = right, pT = total;
     if (isToday && S.dayDone) { pR = S.dayDone.right; pT = S.dayDone.total; }
     h += praiseHTML(praiseData(pR, pT, S.dayDone ? S.dayDone.qi : 0, S.dayDone ? S.dayDone.hi : 0), pR, pT);
+    if (granted.length) h += wishPartyHTML(granted[granted.length - 1]);
     h += '<button class="btn" id="doneBtn">好的</button>';
     body.innerHTML = h;
     document.getElementById("doneBtn").onclick = function () {
@@ -394,12 +494,89 @@
   var curTab = "today";
 
   function render() {
-    document.getElementById("streakBadge").textContent =
-      "连续 " + streakDays() + " 天 · 今日已写 " + todayDoneCount() + " 题";
+    // 连续天数已移到今日页的打卡卡片里，顶栏只留今日题数，避免重复
+    document.getElementById("streakBadge").textContent = "今日已写 " + todayDoneCount() + " 题";
     if (curTab === "today") renderToday();
     else if (curTab === "practice") renderPractice();
     else if (curTab === "notebook") renderNotebook();
     else renderMe();
+  }
+
+  /* ---------- 打卡卡片 ---------- */
+  var wishEditing = false;
+
+  function streakCardHTML() {
+    var n = streakDays();
+    var h = '<div class="card streak-card">';
+    h += '<div class="streak-head">🔥 连续打卡 <span class="streak-num">' + n + "</span> 天</div>";
+    h += '<div class="streak-banner">连续打卡 100 天可以实现一个愿望</div>';
+    h += '<div id="wishSlot"></div>';
+    h += '<div class="streak-foot">从今天开始，完成今日任务即可打卡</div>';
+    var cand = makeupCandidate();
+    h += '<div class="makeup-row">';
+    if (S.makeupCards > 0) {
+      h += '<span class="makeup-count">🩹 补打卡卡 × ' + S.makeupCards + "</span>";
+      h += cand ? '<button class="makeup-btn" id="makeupBtn">补 ' + fmtDate(cand) + " 的卡</button>"
+        : '<span class="makeup-hint">暂时没有要补的日子</span>';
+    } else {
+      h += '<span class="makeup-hint">再连续打卡 ' + (10 - (n % 10)) + " 天，得 1 张补打卡卡</span>";
+    }
+    h += "</div>";
+    h += '<div class="streak-rule">每连续 10 天得 1 张补打卡卡（可攒）；忘了打卡时，用 1 张补回最近 7 天内漏掉的一天。</div>';
+    h += "</div>";
+    return h;
+  }
+
+  function renderWishSlot() {
+    var slot = document.getElementById("wishSlot");
+    if (!slot) return;
+    if (wishEditing) {
+      slot.innerHTML = '<div class="wish-edit">' +
+        '<input class="wish-input" id="wishInput" maxlength="60" placeholder="想要什么？写下来吧" value="' + esc(S.wish) + '">' +
+        '<div class="wish-actions"><button class="btn small" id="wishSave">保存</button>' +
+        '<button class="link-btn" id="wishCancel">取消</button></div></div>';
+      document.getElementById("wishSave").onclick = saveWish;
+      document.getElementById("wishCancel").onclick = function () { wishEditing = false; renderWishSlot(); };
+      document.getElementById("wishInput").addEventListener("keydown", function (e) {
+        if (e.key === "Enter") saveWish();
+      });
+      document.getElementById("wishInput").focus();
+      return;
+    }
+    var n = streakDays();
+    if (S.wish) {
+      slot.innerHTML = '<button class="wish-box filled" id="wishBox">' +
+        '<div class="wish-label">我的愿望 · 点一下可修改</div>' +
+        '<div class="wish-text">' + esc(S.wish) + "</div>" +
+        '<div class="wish-remain">' +
+        (n > 0 && n % 100 === 0 ? "已经实现啦 🎉" : "还差 " + (100 - (n % 100)) + " 天就实现啦") +
+        "</div></button>";
+    } else {
+      slot.innerHTML = '<button class="wish-box" id="wishBox">点这里写下你的愿望 🙏</button>';
+    }
+    document.getElementById("wishBox").onclick = function () { wishEditing = true; renderWishSlot(); };
+  }
+
+  function saveWish() {
+    var el = document.getElementById("wishInput");
+    if (!el) return;
+    S.wish = (el.value || "").trim();
+    wishEditing = false;
+    save(); render();
+  }
+
+  function bindStreakCard() {
+    renderWishSlot();
+    var mk = document.getElementById("makeupBtn");
+    if (mk) mk.onclick = function () {
+      var c = makeupCandidate();
+      if (!c || S.makeupCards < 1) return;
+      if (!confirm("用 1 张补打卡卡，补上 " + fmtDate(c) + " 的打卡？")) return;
+      S.makeupCards--;
+      S.checkins[c] = "makeup";
+      syncRewards("makeup"); // 补打卡只保住连续记录，不额外发卡
+      save(); render();
+    };
   }
 
   function renderToday() {
@@ -408,6 +585,9 @@
     var newN = q.length - reviewN;
     var done = dayDoneInfo();
     var h = "";
+    h += streakCardHTML();
+    var party = wishPartyInfo();
+    if (party) h += wishPartyHTML(party.tier);
     var pending = dueItems().length;
     h += '<div class="card"><h3>今日任务</h3><div class="sub">到期复习 ' + reviewN +
       " 个（越易忘的越靠前）+ 新学 " + newN + " 个 · 范围：" + scopeLabel() + "</div>";
@@ -441,6 +621,7 @@
     // 复习计划说明
     h += '<div class="card"><h3>复习节奏（艾宾浩斯）</h3><div class="sub">答对后按 1 → 2 → 4 → 7 → 15 天自动安排复习；写错第二天再来，并进入错题本。</div></div>';
     main.innerHTML = h;
+    bindStreakCard();
     var btn = document.getElementById("todayBtn");
     if (btn && !btn.disabled) btn.onclick = function () { startSession(q, "今日默写"); };
     var moreBtn = document.getElementById("moreBtn");
@@ -612,11 +793,8 @@
         try {
           var obj = JSON.parse(r.result);
           if (obj && obj.items && obj.settings) {
-            S = obj;
-            S.settings = S.settings || {};
-            if (!S.settings.dailyNew) S.settings.dailyNew = 10;
-            if (!S.settings.shuffle) S.settings.shuffle = "lesson";
-            if (S.settings.scope === undefined) S.settings.scope = null;
+            S = normalizeState(obj);
+            syncRewards("init");
             save(); render();
             alert("导入成功");
           } else alert("文件格式不对");
@@ -625,11 +803,14 @@
       r.readAsText(f);
     };
     document.getElementById("rstBtn").onclick = function () {
-      if (confirm("确定清空所有学习记录吗？")) {
-        S = {
+      if (confirm("确定清空所有学习记录吗？（已写下的愿望会保留）")) {
+        var keepWish = S.wish;
+        S = normalizeState({
           items: {}, sessions: [],
-          settings: { dailyNew: S.settings.dailyNew, shuffle: S.settings.shuffle, scope: S.settings.scope }
-        };
+          settings: { dailyNew: S.settings.dailyNew, dailyReview: S.settings.dailyReview,
+            shuffle: S.settings.shuffle, scope: S.settings.scope, v: 2 }
+        });
+        S.wish = keepWish;
         save(); render();
       }
     };
@@ -645,5 +826,7 @@
     };
   });
 
+  syncRewards("init"); // 启动时同步里程碑（老数据补发应得的卡，但不弹庆祝）
+  save();
   render();
 })();

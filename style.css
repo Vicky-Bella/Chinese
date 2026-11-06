@@ -59,6 +59,68 @@ main { padding: 12px 16px 40px; }
 .stat-row { display: flex; gap: 10px; }
 .stat-row .card { flex: 1; text-align: center; margin-bottom: 0; }
 
+/* 打卡卡片 */
+.streak-card { padding: 18px 18px 16px; }
+.streak-head { font-size: 18px; font-weight: 800; letter-spacing: .5px; }
+.streak-num { font-size: 28px; font-weight: 900; color: var(--primary); margin: 0 2px; }
+.streak-banner {
+  margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+  background: #fff6ea; color: #a97a4a; font-size: 13px; line-height: 1.5;
+}
+.wish-box {
+  display: block; width: 100%; text-align: left; margin-top: 12px;
+  border: 1.5px dashed #f0b579; border-radius: 12px;
+  background: var(--primary-soft); color: #b4560f;
+  font-family: inherit; font-size: 16px; font-weight: 800;
+  padding: 15px 16px;
+}
+.wish-box:active { background: #fce2c4; }
+.wish-box.filled { border-style: solid; background: #fff8ee; }
+.wish-label { font-size: 12px; font-weight: 600; color: #b08a63; }
+.wish-text {
+  font-size: 17px; font-weight: 800; color: var(--ink);
+  margin-top: 4px; line-height: 1.5; word-break: break-all;
+}
+.wish-remain { font-size: 13px; font-weight: 600; color: var(--primary); margin-top: 6px; }
+.wish-edit { margin-top: 12px; }
+.wish-input {
+  display: block; width: 100%; font-family: inherit; font-size: 16px;
+  padding: 13px 14px; border: 2px solid var(--primary); border-radius: 12px;
+  background: #fff; color: var(--ink);
+}
+.wish-input:focus { outline: none; }
+.wish-actions { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+.wish-actions .link-btn { width: auto; margin-top: 0; flex: 0 0 auto; }
+.streak-foot { font-size: 12px; color: var(--ink-soft); margin-top: 10px; }
+.makeup-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line); font-size: 13px;
+}
+.makeup-count { font-weight: 700; color: var(--primary); }
+.makeup-hint { color: var(--ink-soft); }
+.makeup-btn {
+  border: 1.5px solid var(--primary); border-radius: 10px;
+  background: var(--card); color: var(--primary); font-family: inherit;
+  font-size: 13px; font-weight: 700; padding: 8px 12px; min-height: 40px;
+}
+.makeup-btn:active { background: var(--primary-soft); }
+.streak-rule { font-size: 12px; color: var(--ink-soft); line-height: 1.6; margin-top: 8px; }
+
+/* 愿望达成庆祝 */
+.wish-party {
+  background: linear-gradient(135deg, #fff3e0, #ffe9d0);
+  border: 1px solid #f5cf9e; border-radius: var(--radius);
+  padding: 22px 18px; margin-bottom: 12px; text-align: center;
+}
+.wp-emoji { font-size: 42px; }
+.wp-title { font-size: 21px; font-weight: 900; color: #b4560f; margin-top: 6px; }
+.wp-wish {
+  font-size: 17px; font-weight: 700; color: var(--ink);
+  margin-top: 12px; line-height: 1.6; word-break: break-all;
+}
+.wp-sub { font-size: 13px; color: #8a6a45; margin-top: 10px; line-height: 1.7; }
+
 /* 按钮 */
 .btn {
   display: block; width: 100%; border: none; border-radius: 16px;
